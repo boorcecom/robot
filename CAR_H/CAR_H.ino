@@ -1,8 +1,6 @@
 #include <SoftwareSerial.h>
-
 #include <NewPing.h>
-
-#include <IRremote.h>
+#include <IRremote.hpp>
 #include <Servo.h>
 
 /*****************************************************************************
@@ -48,16 +46,17 @@ const int MotorLeft2 = 13; // Sortie OUT PMW 11 pour le port 2 moteur 2
 
 // Code tÃ©lÃ©commande IR
 const int irReceiverPin = 2; // Infrarouge connectÃ© Ã  la broche OUT 2
-const long IRfront = 0x00FF18E7;       // Avant
-const long IRback = 0x00FF4AB5;       // ArriÃ¨re
-const long IRturnright = 0x00FF5AA5;  // Tourner Ã  Droit
-const long IRturnleft = 0x00FF10EF;    // Tourner Ã  Gauche
-const long IRstop = 0x00FF38C7;       // Stop
-const long IRcny70 = 0x00FF02FD;      // Mode automatique CNY70
-const long IRAutorun = 0x00FFC23D;    // Mode automatique Ultrasons
-const long IRturnsmallleft = 0x00FF22DD;
-IRrecv irrecv(irReceiverPin);  // DÃ©finition de l'objet IRrecv pour la rÃ©ception IR
-decode_results results;       // Le dÃ©codage du signale IR sera placÃ© dans cette variable...
+const long IRfront = 0xE718FF00;       // Avant / Touche 2
+const long IRback = 0xAD52FF00;       // Arrière / Touche 8
+const long IRturnright = 0xA55AFF00;  // Tourner à  Droit / Touche 6
+const long IRturnleft = 0xF708FF00;    // Tourner à  Gauche / Touche 4
+const long IRstop = 0xE31CFF00;       // Stop / Touche 5
+const long IRcny70 = 0xF609FF00;      // Mode automatique CNY70 / Touche EQ
+const long IRAutorun = 0xBC43FF00;    // Mode automatique Ultrasons / Touch play pause
+const long IRturnsmallleft = 0xF30CFF00; // Touche 1
+const long IRStopUtrason = 0xF807FF00; // Touche -
+const long IRStartUtrason = 0xEA15FF00; // Touche +
+
 
 // Brochage capteurs CNY70
 const int SensorLeft = A2;      //EntrÃ©e capteur gauche (EntrÃ©e 7)
@@ -96,7 +95,7 @@ int direction_actuelle=Stop;
 int direction_old=Stop;
 int head_pos=90;
 
-boolean scan_enabled=false;
+boolean scan_enabled=true;
 
 SoftwareSerial bluetooth(3,4);
 
@@ -114,13 +113,18 @@ void setup()
   pinMode(MotorLeft1,  OUTPUT);  // Broche 10 (PWM)
   pinMode(MotorLeft2,  OUTPUT);  // Broche 11 (PWM)
   pinMode(MotorPWDR,  OUTPUT);  // Broche 10 (PWM)
-  pinMode(MotorPWDL,  OUTPUT);  // Broche 11 (PWM)  
-  irrecv.enableIRIn();     // Lancement dÃ©codage IR
+  pinMode(MotorPWDL,  OUTPUT);  // Broche 11 (PWM)
+  IrReceiver.begin(irReceiverPin, ENABLE_LED_FEEDBACK);
   pinMode(SensorLeft, INPUT); //DÃ©finition capteur Gauche broche 7
   pinMode(SensorMiddle, INPUT);//DÃ©finition capteur Centre broche 4
   pinMode(SensorRight, INPUT); //DÃ©finition capteur Droite broche 3
   digitalWrite(2, HIGH);
   myservo.attach(SerPin); // Definiton servomoteur sur broche 9 (PWM)
+  setupUS();
+}
+
+void setupUS()
+{
   myservo.write(180);
   delay(100);
   for(int i=0;i<=180;i++)
@@ -132,10 +136,8 @@ void setup()
   {
     myservo.write(i);
     delay(20);
-  }
-
+  }  
 }
-
 
 //******************************************************************************
 // Mesures des distances sur un angle!
@@ -351,27 +353,27 @@ void loop()
       bluetooth.println("ER");
     }
   }
-  if (irrecv.decode(&results))
+  if (IrReceiver.decode())
   { 
     char msg=' ';
-    Serial.println(results.value, HEX);
-    if (results.value == IRfront)//Avance ?
+    Serial.println(IrReceiver.decodedIRData.decodedRawData, HEX);
+    if (IrReceiver.decodedIRData.decodedRawData == IRfront)//Avance ?
     {
       msg='a';  
     }
-    if (results.value ==  IRback)//Marche arriÃ¨re ?
+    if (IrReceiver.decodedIRData.decodedRawData ==  IRback)//Marche arriÃ¨re ?
     {
       msg='r';  
     }
-    if (results.value == IRturnright)// Droite
+    if (IrReceiver.decodedIRData.decodedRawData == IRturnright)// Droite
     {
       msg='d';  
     }
-    if (results.value == IRturnleft)//Gauche ?
+    if (IrReceiver.decodedIRData.decodedRawData == IRturnleft)//Gauche ?
     {
       msg='g';  
     }
-    if (results.value == IRstop)//On coupe tout !
+    if (IrReceiver.decodedIRData.decodedRawData == IRstop)//On coupe tout !
     {
       msg='s';  
     }
@@ -379,9 +381,13 @@ void loop()
     {
       msg='l';  
     } */
-    if (results.value == IRAutorun  )
+    if (IrReceiver.decodedIRData.decodedRawData == IRAutorun  )
     {
       msg='u';  
+    }
+    if (IrReceiver.decodedIRData.decodedRawData == IRStartUtrason )
+    {
+      msg='m';
     }
     if(msg!=' ') {
       if(handleDirection(msg)) {
@@ -392,9 +398,11 @@ void loop()
         bluetooth.println("ER");
       }
     }
-    irrecv.resume();    // prochaine trame infrarouge...
+    IrReceiver.resume();
   }
-  sensSonar();
+  if(scan_enabled) {
+    sensSonar();
+  }
   autoDrive();
   runRobot();
 }
@@ -409,7 +417,7 @@ void sensSonar() {
     realStep=8-sensStep;
   } 
   dist_sens[realStep]=(unsigned int)((dist_sens[realStep]+(unsigned int)sense_Angle(sensAngle[sensStep])*2)/3);
-
+/*
   Serial.print(sensStep);
   Serial.print("-");
   Serial.print(sensAngle[sensStep]);
@@ -421,7 +429,7 @@ void sensSonar() {
   bluetooth.print(sensAngle[sensStep]);
   bluetooth.print("-");
   bluetooth.println(dist_sens[sensStep]);
-
+*/
   
   sensStep++;
   if(sensStep>=8) {
@@ -469,4 +477,3 @@ void autoDrive() {
     }
   }    
 }
-
